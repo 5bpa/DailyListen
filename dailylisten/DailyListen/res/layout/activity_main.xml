@@ -46,4 +46,14 @@
         android:layout_below="@+id/button3"
         android:text="Previous" />
 
+    <Button
+        android:id="@+id/button5"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignLeft="@+id/button4"
+        android:layout_below="@+id/button4"
+        android:text="Download" />
+
+
+
 </RelativeLayout>

@@ -1,16 +1,27 @@
 package org.wonhyoro.dailylisten;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.URL;
+import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Locale;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Context;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -24,11 +35,13 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
 	Button stopButton;
 	Button nextButton;
 	Button prevButton;
+	Button downloadButton;
 	TextView audioTitle;
 	MediaPlayer mediaPlayer;
 	ArrayList<String> list;
 	
-	final static String BASE = "/storage/external_SD/MUSIC/ebs";
+	final static String URLBASE = "http://wonhyoro.iptime.org/~jaeswith/ebs/";
+	final static int EXPIRE_DAYS = 10;
 	
 	int curTrack;
 	
@@ -38,13 +51,10 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
 		
 		String filename;
 		
-		File dir = new File( BASE );
-		if ( dir.isDirectory() == false )
-		{
+		File[] fileList = getFilesDir().listFiles();
+		
+		if ( fileList == null )
 			return;
-		}
-			
-		File[] fileList = dir.listFiles();
 		
 		for ( File f : fileList )
 		{
@@ -87,6 +97,9 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
         
         prevButton = (Button)findViewById( R.id.button4 );
         prevButton.setOnClickListener( this );
+        
+        downloadButton = (Button)findViewById( R.id.button5 );
+        downloadButton.setOnClickListener( this );
         
         audioTitle = (TextView) findViewById( R.id.textView1 );
         
@@ -138,8 +151,87 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
 			e.printStackTrace();
 		}
     }
-    
 
+    class AudioDownloader extends AsyncTask<String, String, String> {
+
+    	private Context mContext;
+    	    	
+    	public AudioDownloader( Context c ) {
+    		mContext = c;
+		}
+    	
+    	private void removeOldFiles()
+    	{
+    		for ( int days = EXPIRE_DAYS; days < EXPIRE_DAYS+3; days++ )
+    		{
+	    		long epoch = System.currentTimeMillis() - days * 24 * 60 * 60 * 1000; 
+	    		String date = new java.text.SimpleDateFormat("yyMMdd_EEE", Locale.US ).format(new java.util.Date (epoch));
+	    		
+	    		String easy = date + "_easy.mp3";
+				String power = date + "_power.mp3";
+				
+				File file = new File( mContext.getFilesDir(), easy );
+				if ( file.exists() )
+					file.delete();
+				
+				file = new File( mContext.getFilesDir(), power );
+				if ( file.exists() )
+					file.delete();
+				
+    		}
+    		
+    	}
+    	
+		@Override
+		protected String doInBackground(String... params) {
+	    	 int count;
+	    	 for ( String filename : params )
+	    	 {
+	    		 File file = new File( mContext.getFilesDir(), filename );
+	    		 if ( file.exists() )
+	    		 {
+	    			 System.out.println( file.getPath() + " exists" );
+	    			 continue;
+	    		 }
+	    		 
+	    		 removeOldFiles();
+	    		 
+	    		 try {
+	    			 URL url = new URL( URLBASE + filename );
+	    			 URLConnection conection = url.openConnection();
+	    			 conection.connect();
+
+	    			 InputStream input = new BufferedInputStream(url.openStream(), 8192);
+	    			 OutputStream output = new FileOutputStream( file );
+
+	    			 byte data[] = new byte[1024];
+
+	    			 while ((count = input.read(data)) != -1) {
+	    				 output.write(data, 0, count);
+	    			 }
+
+	    			 output.flush();
+
+	    			 output.close();
+	    			 input.close();
+
+	    		 } catch (Exception e) {
+	    			 Log.e("Error: ", e.getMessage());
+	    		 }
+	    	 }
+
+	    	 return null;
+		}
+
+		@Override
+		protected void onPostExecute(String result) {
+			audioTitle.setText( "Download done." );
+			readAudioFileList();
+			super.onPostExecute(result);
+		}
+    }
+    
+	@SuppressLint("SimpleDateFormat")
 	@Override
 	public void onClick(View v) {
 		// TODO Auto-generated method stub
@@ -182,6 +274,14 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
 				}
 				playAudio();
 			}
+		}
+		else if ( v == downloadButton )
+		{
+			String date = new java.text.SimpleDateFormat("yyMMdd_EEE", Locale.US ).format(new java.util.Date (System.currentTimeMillis()));
+			String easy = date + "_easy.mp3";
+			String power = date + "_power.mp3";
+			audioTitle.setText( "Download " + date + " ..." );
+			new AudioDownloader( this ).execute( easy, power );
 		}
 	}
 
