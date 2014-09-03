@@ -2,11 +2,10 @@ package org.wonhyoro.dailylisten;
 
 import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
@@ -16,11 +15,13 @@ import java.util.Locale;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.media.MediaPlayer;
-import android.media.MediaPlayer.OnCompletionListener;
+import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -30,18 +31,24 @@ import android.widget.Button;
 import android.widget.TextView;
 
 
-public class MainActivity extends Activity implements OnClickListener, OnCompletionListener {
+public class MainActivity extends Activity implements OnClickListener {
 	Button playButton;
 	Button stopButton;
 	Button nextButton;
 	Button prevButton;
 	Button downloadButton;
 	TextView audioTitle;
-	MediaPlayer mediaPlayer;
+	
+	Intent playServiceIntent;
+	
 	ArrayList<String> list;
 	
 	final static String URLBASE = "http://wonhyoro.iptime.org/~jaeswith/ebs/";
 	final static int EXPIRE_DAYS = 10;
+	
+   private static final int MSG_PLAY_FIN = 0;
+	private static final String ACTION_PLAY = "org.wonhyoro.dailylisten.PLAY";
+	private static final String ACTION_STOP = "org.wonhyoro.dailylisten.STOP";
 	
 	int curTrack;
 	
@@ -102,10 +109,7 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
         downloadButton.setOnClickListener( this );
         
         audioTitle = (TextView) findViewById( R.id.textView1 );
-        
-        mediaPlayer = new MediaPlayer();
-        mediaPlayer.setOnCompletionListener( this );
-        
+
         readAudioFileList();
     }
 
@@ -129,28 +133,6 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
         return super.onOptionsItemSelected(item);
     }
 
-    private void playAudio()
-    {
-    	String path = list.get( curTrack );
-    	audioTitle.setText( path );
-		try {
-			mediaPlayer.setDataSource( path );
-			mediaPlayer.prepare();
-			mediaPlayer.start();
-		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (IllegalArgumentException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (IllegalStateException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-    }
 
     class AudioDownloader extends AsyncTask<String, String, String> {
 
@@ -167,17 +149,11 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
 	    		long epoch = System.currentTimeMillis() - days * 24 * 60 * 60 * 1000; 
 	    		String date = new java.text.SimpleDateFormat("yyMMdd_EEE", Locale.US ).format(new java.util.Date (epoch));
 	    		
-	    		String easy = date + "_easy.mp3";
-				String power = date + "_power.mp3";
+	    		String filename = date + "_easy_power.mp3";
 				
-				File file = new File( mContext.getFilesDir(), easy );
+				File file = new File( mContext.getFilesDir(), filename );
 				if ( file.exists() )
-					file.delete();
-				
-				file = new File( mContext.getFilesDir(), power );
-				if ( file.exists() )
-					file.delete();
-				
+					file.delete();			
     		}
     		
     	}
@@ -230,6 +206,26 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
 			super.onPostExecute(result);
 		}
     }
+
+    private void playAudio()
+    {
+    	String path = list.get( curTrack );
+    	audioTitle.setText( path );
+		playServiceIntent = new Intent( this, DailyListenService.class );
+		playServiceIntent.setAction( ACTION_PLAY );
+		System.out.println( "playAudio: " + path );
+		playServiceIntent.putExtra( "filename", path );
+		startService( playServiceIntent );
+    }
+    
+    private void goNext()
+    {
+		curTrack++;
+		if ( curTrack == list.size() )
+		{
+			curTrack = 0;
+		}
+    }
     
 	@SuppressLint("SimpleDateFormat")
 	@Override
@@ -241,67 +237,85 @@ public class MainActivity extends Activity implements OnClickListener, OnComplet
 			playAudio();
 		}
 		else if ( v == stopButton) {
-			if ( mediaPlayer.isPlaying() )
-			{
-				mediaPlayer.stop();
-				mediaPlayer.reset();
-			}
+			System.out.println( "Stop pressed" );
+			playServiceIntent = new Intent( this, DailyListenService.class );
+			playServiceIntent.setAction( ACTION_STOP );
+			startService( playServiceIntent );
 		}
 		else if ( v == nextButton ) 
 		{
-			if ( mediaPlayer.isPlaying() )
-			{
-				mediaPlayer.stop();
-				mediaPlayer.reset();
-				curTrack++;
-				if ( curTrack == list.size() )
-				{
-					curTrack = 0;
-				}
-				playAudio();
-			}
-		}
-		else if ( v == prevButton ) 
-		{
-			if ( mediaPlayer.isPlaying() )
-			{
-				mediaPlayer.stop();
-				mediaPlayer.reset();
-				curTrack--;
-				if ( curTrack < 0 )
-				{
-					curTrack = list.size() - 1;
-				}
-				playAudio();
-			}
-		}
-		else if ( v == downloadButton )
-		{
-			String date = new java.text.SimpleDateFormat("yyMMdd_EEE", Locale.US ).format(new java.util.Date (System.currentTimeMillis()));
-			String easy = date + "_easy.mp3";
-			String power = date + "_power.mp3";
-			audioTitle.setText( "Download " + date + " ..." );
-			new AudioDownloader( this ).execute( easy, power );
-		}
-	}
-
-	@Override
-	public void onCompletion(MediaPlayer mp) {
-		if ( curTrack == list.size() )
-		{
-			mp.release();
-		}
-		else
-		{
-			mediaPlayer.stop();
-			mediaPlayer.reset();
+			playServiceIntent = new Intent( this, DailyListenService.class );
+			playServiceIntent.setAction( ACTION_STOP );
+			startService( playServiceIntent );
+			
 			curTrack++;
 			if ( curTrack == list.size() )
 			{
 				curTrack = 0;
 			}
 			playAudio();
-
 		}
+		else if ( v == prevButton ) 
+		{
+			playServiceIntent = new Intent( this, DailyListenService.class );
+			playServiceIntent.setAction( ACTION_STOP );
+			startService( playServiceIntent );
+			curTrack--;
+			if ( curTrack == -1 )
+			{
+				curTrack = 0;
+			}
+			
+			playAudio();
+		}
+		else if ( v == downloadButton )
+		{
+			String date = new java.text.SimpleDateFormat("yyMMdd_EEE", Locale.US ).format(new java.util.Date (System.currentTimeMillis()));
+			String filename = date + "_easy_power.mp3";
+			audioTitle.setText( "Download " + date + " ..." );
+			new AudioDownloader( this ).execute( filename );
+		}
+	}
+	
+	public static class MessageReceiver extends BroadcastReceiver
+	{
+		Handler handler;
+
+		public MessageReceiver( Handler h ) {
+			handler = h;
+		}
+
+		@Override
+		public void onReceive(Context arg0, Intent intent) {
+			String action = intent.getAction();
+
+			if ( action.equals( "org.wonhyoro.dailylisten.play_fin" ) )
+			{
+				Message msg = handler.obtainMessage( MSG_PLAY_FIN );
+				handler.sendMessage( msg );
+			}
+		}
+	}
+
+	static class MessageHandler extends Handler 
+	{
+		WeakReference<MainActivity> main;
+
+		public MessageHandler( MainActivity main ) {
+			this.main = new WeakReference<MainActivity>( main );
+		}
+
+		@Override
+		public void handleMessage( Message msg )
+		{
+			MainActivity main = this.main.get();
+			switch( msg.what )
+			{
+			case MSG_PLAY_FIN:
+				main.goNext();
+				main.playAudio();
+				break;
+			}
+		};
 	}
 }
